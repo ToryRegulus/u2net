@@ -31,7 +31,7 @@ def load_image(file_path: str) -> Tensor:
     return image
 
 
-def main(model_name: str):
+def main(model_name: str, weight_name: str):
     cfg = dict()
     if model_name == "u2net":
         cfg = yaml.safe_load(Path("model/u2net_full.yaml").read_text())
@@ -40,7 +40,7 @@ def main(model_name: str):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     net = U2NET(cfg=cfg)
-    net.load_state_dict(torch.load("weight/u2net-0.020238.pth"))
+    net.load_state_dict(torch.load(f"weight/{weight_name}"))
     net.to(device)
     net.eval()
 
@@ -82,4 +82,4 @@ def main(model_name: str):
 if __name__ == '__main__':
     register_heif_opener()
 
-    main("u2net")
+    main("u2net", "u2net-0.020238.pth")

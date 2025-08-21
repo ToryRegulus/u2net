@@ -3,4 +3,5 @@
 **/__pycache__/
 
 *.pth
+*.onnx.*
 train_data/*

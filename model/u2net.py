@@ -38,7 +38,7 @@ def _size_map(x: Tensor, height: int) -> dict[int, tuple[int, ...]]:
 
     for h in range(1, height):
         size_map[h] = tuple(size)
-        size = [math.ceil(i / 2) for i in size]
+        size = [(i + 1) // 2 for i in size]
 
     return size_map
 

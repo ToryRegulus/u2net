@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 import yaml
 from torch import Tensor, nn, optim
-from torch.amp import GradScaler, autocast
+from torch.amp import GradScaler, autocast  # type: ignore
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -70,9 +70,9 @@ def mkdirs(img_dir: Path, label_dir: Path, weight_dir: Path) -> None:
     if not any(label_dir.iterdir()):
         missing.append("label")
 
-    assert (
-        not missing
-    ), f"训练目录下的以下子目录为空（必须包含文件）: {', '.join(missing)}"
+    assert not missing, (
+        f"训练目录下的以下子目录为空（必须包含文件）: {', '.join(missing)}"
+    )
 
 
 def train(model_name: str, epoch_num: int) -> None:
@@ -89,8 +89,8 @@ def train(model_name: str, epoch_num: int) -> None:
     weight_dir = Path() / "weight"
     mkdirs(img_dir, label_dir, weight_dir)
 
-    img_paths = list(img_dir.glob(f"*.jpg"))
-    label_paths = list(label_dir.glob(f"*.png"))
+    img_paths = list(img_dir.glob("*.jpg"))
+    label_paths = list(label_dir.glob("*.png"))
     img_dict = {p.stem: p for p in img_paths}
     label_dict = {p.stem: p for p in label_paths}
     common_stems = sorted(set(img_dict.keys()) & set(label_dict.keys()))
@@ -122,6 +122,8 @@ def train(model_name: str, epoch_num: int) -> None:
     dataloader = DataLoader(image_dataset, batch_size=16, shuffle=True, num_workers=1)
     scaler = GradScaler()
 
+    im0 = None
+
     # ----- 训练 -----
     best_loss = 1
     for epoch in range(epoch_num):
@@ -129,8 +131,11 @@ def train(model_name: str, epoch_num: int) -> None:
         epoch_target_loss = 0
         iter_num = 0
 
-        for idx, (img, label) in enumerate(dataloader):
+        for _, (img, label) in enumerate(dataloader):
             img = img.to(device)
+            if im0 is None:
+                im0 = img.clone()
+                im0 = im0[0:1].detach().to(device)
             label = label.to(device)
             optimizer.zero_grad()
 
@@ -165,6 +170,16 @@ def train(model_name: str, epoch_num: int) -> None:
             f"Epoch: {epoch + 1}/{epoch_num}, "
             f"loss: {avg_loss:.6f}, "
             f"fuse_loss: {(epoch_target_loss / iter_num):.6f}"
+        )
+
+    # ----- 转换为ONNX -----
+    net.eval()
+    with torch.no_grad():
+        torch.onnx.export(
+            net,
+            im0,  # type: ignore
+            f"weight/{model_name}-{best_loss:.6f}.onnx",
+            dynamo=True,
         )
 
 
