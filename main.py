@@ -1,85 +1,69 @@
-from pathlib import Path
-
 import numpy as np
+import onnxruntime as ort
 import torch
-import yaml
 from PIL import Image
 from pillow_heif import register_heif_opener
-from torch import Tensor
 from torchvision import transforms
 
-from data_loader import Resize, Normalize
-from model.u2net import U2NET
+from data_loader import Normalize, Resize
 
 
-def renormalize(pred):
-    value_max = torch.max(pred)
-    value_min = torch.min(pred)
-
+def renormalize(pred: np.ndarray) -> np.ndarray:
+    value_max = np.max(pred)
+    value_min = np.min(pred)
     pred = (pred - value_min) / (value_max - value_min)
     pred = pred * 255
-
     return pred
 
 
-def load_image(file_path: str) -> Tensor:
+def load_image(file_path: str) -> np.ndarray:
     image = np.array(Image.open(file_path))
-    image = image.transpose((2, 0, 1))
-    image = torch.from_numpy(image).float()
-    image.unsqueeze_(0)
-
+    image = image.transpose((2, 0, 1))  # HWC -> CHW
+    image = image.astype(np.float32)
+    image = np.expand_dims(image, 0)
     return image
 
 
-def main(model_name: str, weight_name: str):
-    cfg = dict()
-    if model_name == "u2net":
-        cfg = yaml.safe_load(Path("model/u2net_full.yaml").read_text())
-    elif model_name == "u2netp":
-        cfg = yaml.safe_load(Path("model/u2net_lite.yaml").read_text())
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    net = U2NET(cfg=cfg)
-    net.load_state_dict(torch.load(f"weight/{weight_name}"))
-    net.to(device)
-    net.eval()
+def main(weight_name: str, device: str = "CPU") -> None:
+    if device == "GPU":
+        providers = ["CUDAExecutionProvider"]
+    else:
+        providers = ["CPUExecutionProvider"]
+    sess_options = ort.SessionOptions()
+    sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    ort_session = ort.InferenceSession(
+        f"weight/{weight_name}.onnx", sess_options, providers=providers
+    )
+    input_name = ort_session.get_inputs()[0].name
+    output_name = ort_session.get_outputs()[0].name
 
     image_orin = load_image("./test.jpg")
 
-    image = image_orin.to(device)
-    transform = transforms.Compose([
-        Resize(320),
-        Normalize()
-    ])
-    image, _ = transform((image, None))
+    transform = transforms.Compose([Resize(288), Normalize()])
+    image_tensor = torch.from_numpy(image_orin)
+    image_tensor, _ = transform((image_tensor, None))
+    image = image_tensor.numpy()
 
-    with torch.no_grad():
-        pred_lst = net(image)
-        pred_lst = [torch.sigmoid(x) for x in pred_lst]
-        pred = pred_lst[0][:, 0, :, :]
-        pred = renormalize(pred)
-        pred = pred.to(torch.uint8)
-        pred = transforms.Resize((image_orin.shape[2], image_orin.shape[3]))(pred)
+    pred_lst = ort_session.run([output_name], {input_name: image})
+    pred = pred_lst[0][0, 0, :, :]  # type: ignore
+    pred = 1 / (1 + np.exp(-pred))  # sigmoid
+    pred = renormalize(pred)
+    pred = pred.astype(np.uint8)
 
-        if pred.device != "cpu":
-            label = pred.to("cpu")
-        else:
-            label = pred
+    mask = Image.fromarray(pred)
+    mask = mask.resize((image_orin.shape[3], image_orin.shape[2]))
+    mask = np.array(mask).astype(np.float32) / 255.0
+    mask = np.expand_dims(mask, axis=-1)
 
-        label_np = label.squeeze().numpy()
-        image_np = image_orin.squeeze().permute(1, 2, 0).numpy()
-        image_np = image_np.astype(np.uint8)
-        mask = (label_np > 0).astype(np.uint8)
-        mask = np.stack([mask] * 3, axis=-1)
-        background = np.ones_like(image_np) * 255
+    image_orin = image_orin.squeeze(0).transpose(1, 2, 0)
+    background = np.ones_like(image_orin, dtype=np.uint8) * 255
 
-        res = image_np * mask + background * (1 - mask)
-        res = Image.fromarray(res)
-
-        res.save("res.png")
+    res = (image_orin * mask + background * (1 - mask)).astype(np.uint8)
+    res = Image.fromarray(res)
+    res.save("res.jpg")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     register_heif_opener()
 
-    main("u2net", "u2net-0.020238.pth")
+    main("u2net-0.044858")

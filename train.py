@@ -119,7 +119,7 @@ def train(model_name: str, epoch_num: int) -> None:
         ),
     )
 
-    dataloader = DataLoader(image_dataset, batch_size=16, shuffle=True, num_workers=1)
+    dataloader = DataLoader(image_dataset, batch_size=16, shuffle=True, num_workers=3)
     scaler = GradScaler()
 
     im0 = None
