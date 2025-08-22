@@ -32,7 +32,7 @@ class Resize:
         img = F.resize(img, [self.size[0], self.size[1]])
 
         if label is not None:
-            label = F.resize(label, [self.size[0], self.size[1]], interpolation=InterpolationMode.NEAREST)
+            label = F.resize(label, [self.size[0], self.size[1]], interpolation=InterpolationMode.BILINEAR)
 
         if img.max() > 1:
             img = img / img.max()
