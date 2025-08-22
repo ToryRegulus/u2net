@@ -24,6 +24,16 @@ def load_image(file_path: str) -> np.ndarray:
     return image
 
 
+def sigmod(x: np.ndarray):
+    out = np.zeros_like(x, dtype=np.float64)
+    pos_idx = x >= 0
+    neg_idx = ~pos_idx
+    out[pos_idx] = 1 / (1 + np.exp(-x[pos_idx]))
+    out[neg_idx] = np.exp(x[neg_idx]) / (1 + np.exp(x[neg_idx]))
+
+    return out
+
+
 def main(weight_name: str, device: str = "CPU") -> None:
     if device == "GPU":
         providers = ["CUDAExecutionProvider"]
@@ -46,7 +56,7 @@ def main(weight_name: str, device: str = "CPU") -> None:
 
     pred_lst = ort_session.run([output_name], {input_name: image})
     pred = pred_lst[0][0, 0, :, :]  # type: ignore
-    pred = 1 / (1 + np.exp(-pred))  # sigmoid
+    pred = sigmod(pred)
     pred = renormalize(pred)
     pred = pred.astype(np.uint8)
 
