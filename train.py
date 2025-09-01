@@ -135,7 +135,7 @@ def train(model_name: str, epoch_num: int) -> None:
             img = img.to(device)
             if im0 is None:
                 im0 = img.clone()
-                im0 = im0[0:1].detach().to(device)
+                im0 = im0[0:1].detach()
             label = label.to(device)
             optimizer.zero_grad()
 
